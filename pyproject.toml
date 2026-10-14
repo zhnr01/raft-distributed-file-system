@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dfs"
+version = "0.0.0"
+description = "Fault-tolerant distributed file system: Raft consensus + adaptive replication"
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio>=1.60",
+    "protobuf>=5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "grpcio-tools==1.84.0",
+    "mypy-protobuf==5.1.0",
+    "protobuf==7.36.2",
+    "grpc-stubs==1.53.0.6",
+    "types-protobuf==7.35.1.20260906",
+    "ruff==0.17.0",
+    "mypy==2.4.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["*_pb2.py", "*_pb2_grpc.py", "*_pb2.pyi", "*_pb2_grpc.pyi"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"
+files = ["src", "tests"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["dfs.proto.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
