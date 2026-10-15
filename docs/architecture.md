@@ -50,6 +50,22 @@ run can be reproduced exactly from a seed.
 Everything else depends inward toward the consensus core and the shared message
 definitions; the core never depends on the storage, client, or adaptive layers.
 
+### Code pointers — the two injected interfaces (U1)
+
+| Interface | Declared in | Simulated implementation | Production implementation |
+|---|---|---|---|
+| Clock | `src/dfs/clock.py` | `src/dfs/sim/clock.py` (`SimClock`) | not yet written (U7) |
+| Network | `src/dfs/network.py` | `src/dfs/sim/network.py` (`SimNetwork`) | `src/dfs/transport.py` (gRPC, U0) |
+
+Run wiring: `src/dfs/sim/simulation.py` (`Simulation`) owns the seed and the one
+PRNG, constructs the clock and network, and routes deliveries to registered
+nodes by name.
+
+The protocols live in `src/dfs/`, deliberately NOT in `src/dfs/sim/`: the Raft
+core imports the interface and must never import the simulator (rules.md rule 3).
+`SimNetwork` keeps no queue of its own — it schedules deliveries onto the clock's
+queue, so exactly one component decides event order.
+
 ## Consistency
 
 - Metadata operations are linearizable: they are committed through Raft and read
