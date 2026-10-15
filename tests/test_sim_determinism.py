@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from random import Random
 
+from conftest import run_scripted_exchange
+
 from dfs.network import Message
 from dfs.sim.network import NetworkConditions
 from dfs.sim.simulation import Simulation
-from tests.test_sim_replay import run_scripted_exchange
 
 
 def test_two_hundred_seeds_each_replay_identically() -> None:
