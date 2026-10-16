@@ -62,9 +62,35 @@ PRNG, constructs the clock and network, and routes deliveries to registered
 nodes by name.
 
 The protocols live in `src/dfs/`, deliberately NOT in `src/dfs/sim/`: the Raft
-core imports the interface and must never import the simulator (rules.md rule 3).
+core imports the interface and must never import the simulator (a separation the
+project enforces with a grep check in its build harness).
 `SimNetwork` keeps no queue of its own — it schedules deliveries onto the clock's
 queue, so exactly one component decides event order.
+
+### Code pointers — the safety invariants (U2)
+
+| Piece | Lives in | Notes |
+|---|---|---|
+| Snapshot vocabulary | `src/dfs/state.py` | `Role`, `LogEntry`, `NodeState`, `ClusterState` — frozen dataclasses |
+| The four checks | `src/dfs/invariants.py` | `InvariantChecker.check(cluster)` returns every `Violation` found |
+| Failure report | `src/dfs/invariants.py` | `InvariantViolated` carries the violation plus the seed and virtual time |
+| Single-stepping | `src/dfs/sim/clock.py` | `step()`, `next_due()`; `_fire_next()` is the only heap pop |
+| Step-and-check loop | `src/dfs/sim/simulation.py` | `observe()`, `step()`, `run_until()` |
+
+`state.py` and `invariants.py` import only the standard library and each other —
+the checker has no knowledge of the simulator, so at U3 the real Raft node can
+produce the same snapshots (rule 3, grep-verified).
+
+Three of the four checks are stateful: Election Safety, Leader Append-Only and
+Leader Completeness keep ledgers, because a violation can span two steps and be
+invisible in either one alone. Log Matching is the only stateless check.
+Entries are always addressed by `LogEntry.index`, never by position in the tuple.
+The reasoning behind each of these choices, and the alternatives rejected, are
+recorded in the project's design notes.
+
+The invariants are proven able to fail by deliberately sabotaging the checker and
+confirming the suite catches each sabotage; a check that has never fired is not
+known to work.
 
 ## Consistency
 
