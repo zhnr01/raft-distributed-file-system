@@ -6,6 +6,7 @@ from dfs.network import Message
 from dfs.sim.clock import SimClock
 
 DeliveryHandler = Callable[[str, Message], None]
+ReachabilityCheck = Callable[[str], bool]
 
 
 @dataclass(frozen=True)
@@ -40,10 +41,12 @@ class SimNetwork:
         clock: SimClock,
         random: Random,
         conditions: NetworkConditions | None = None,
+        reachable: ReachabilityCheck | None = None,
     ) -> None:
         self._clock = clock
         self._random = random
         self._conditions = conditions if conditions is not None else NetworkConditions()
+        self._reachable = reachable
         self._partition = _Partition()
         self._handlers: list[DeliveryHandler] = []
         self._sent = 0
@@ -67,6 +70,9 @@ class SimNetwork:
 
     def send(self, sender: str, recipient: str, message: Message) -> None:
         self._sent += 1
+        if not self._accepts(sender) or not self._accepts(recipient):
+            self._dropped += 1
+            return
         if self._partition.blocks(sender, recipient):
             self._dropped += 1
             return
@@ -88,7 +94,13 @@ class SimNetwork:
     def dropped(self) -> int:
         return self._dropped
 
+    def _accepts(self, recipient: str) -> bool:
+        return self._reachable is None or self._reachable(recipient)
+
     def _deliver(self, recipient: str, message: Message) -> None:
+        if not self._accepts(recipient):
+            self._dropped += 1
+            return
         self._delivered += 1
         for handler in self._handlers:
             handler(recipient, message)

@@ -1,3 +1,5 @@
+import pytest
+
 from dfs.invariants import Invariant, InvariantChecker, _entries_by_index, _entry_at
 from dfs.state import ClusterState, LogEntry, NodeState, Role
 
@@ -221,25 +223,15 @@ def test_both_entry_lookups_agree_on_which_entry_is_at_an_index() -> None:
     assert _entries_by_index(log)[1].command == b"first"
 
 
-def test_a_duplicated_index_in_one_log_does_not_accuse_the_other_node() -> None:
+def test_a_duplicated_index_is_rejected_at_the_boundary_rather_than_judged() -> None:
     n1 = (
         LogEntry(term=1, index=1, command=b"P"),
         LogEntry(term=1, index=1, command=b"Q"),
         LogEntry(term=9, index=2, command=b"Z"),
     )
-    n2 = (
-        LogEntry(term=1, index=1, command=b"P"),
-        LogEntry(term=9, index=2, command=b"Z"),
-    )
-    checker = InvariantChecker()
-    cluster = ClusterState(
-        nodes=(
-            _node("n1", 2, Role.FOLLOWER, n1, 0),
-            _node("n2", 2, Role.FOLLOWER, n2, 0),
-        )
-    )
 
-    assert checker.check(cluster) == ()
+    with pytest.raises(ValueError, match="not strictly increasing"):
+        _node("n1", 2, Role.FOLLOWER, n1, 0)
 
 
 def test_leader_completeness_looks_up_the_entry_by_index_not_by_position() -> None:
