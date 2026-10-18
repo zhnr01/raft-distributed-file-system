@@ -236,7 +236,7 @@ def test_a_duplicated_index_is_rejected_at_the_boundary_rather_than_judged() -> 
 
 def test_leader_completeness_looks_up_the_entry_by_index_not_by_position() -> None:
     checker = InvariantChecker()
-    checker.check(ClusterState(nodes=(_node("n1", 2, Role.LEADER, _offset_log(1, 1), 1),)))
+    checker.check(ClusterState(nodes=(_node("n1", 1, Role.LEADER, _offset_log(1, 1), 1),)))
 
     violations = checker.check(
         ClusterState(nodes=(_node("n2", 5, Role.LEADER, _offset_log(5, 5, 5), 0),))

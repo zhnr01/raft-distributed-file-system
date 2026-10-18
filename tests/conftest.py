@@ -176,6 +176,15 @@ class Cluster:
     def leaders(self) -> tuple[str, ...]:
         return tuple(name for name in self.names if self.nodes[name].role is Role.LEADER)
 
+    def leader(self) -> RaftNode:
+        found = self.leaders()
+        if len(found) != 1:
+            raise AssertionError(f"expected exactly one leader, found {found}")
+        return self.nodes[found[0]]
+
+    def submit(self, command: bytes) -> int:
+        return self.leader().submit(command)
+
     def top_term(self) -> int:
         return max(node.current_term for node in self.nodes.values())
 

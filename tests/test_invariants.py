@@ -108,8 +108,9 @@ def test_leader_append_only_allows_a_leader_appending_entries() -> None:
 
 def test_leader_append_only_allows_truncation_while_the_node_is_a_follower() -> None:
     checker = InvariantChecker()
+    peers = (_follower("n2", ()), _follower("n3", ()))
 
-    checker.check(ClusterState(nodes=(_leader("n1", 5, _entries(1, 1, 5)),)))
+    checker.check(ClusterState(nodes=(_leader("n1", 5, _entries(1, 1, 5)), *peers)))
     checker.check(
         ClusterState(
             nodes=(
@@ -120,10 +121,11 @@ def test_leader_append_only_allows_truncation_while_the_node_is_a_follower() -> 
                     log=_entries(1, 1),
                     commit_index=0,
                 ),
+                *peers,
             )
         )
     )
-    violations = checker.check(ClusterState(nodes=(_leader("n1", 9, _entries(1, 1, 9)),)))
+    violations = checker.check(ClusterState(nodes=(_leader("n1", 9, _entries(1, 1, 9)), *peers)))
 
     assert violations == ()
 

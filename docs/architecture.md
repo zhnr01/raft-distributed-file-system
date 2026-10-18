@@ -92,6 +92,43 @@ The invariants are proven able to fail by deliberately sabotaging the checker an
 confirming the suite catches each sabotage; a check that has never fired is not
 known to work.
 
+### Code pointers — log replication (U4)
+
+| Piece | Lives in | Notes |
+|---|---|---|
+| Message vocabulary | `src/dfs/messages.py` | `AppendEntries.entries` is `tuple[LogEntry, ...]`, not bare bytes — a re-sent entry keeps its original term |
+| Request a write | `src/dfs/raft.py` | `RaftNode.submit(command)` appends locally, then replicates; refuses unless the node believes it is leader |
+| Consistency check | `src/dfs/raft.py` | `_predecessor_matches()` — refuse unless the entry before the new ones matches by index AND term |
+| Apply an append | `src/dfs/raft.py` | `_store_entries()` — skip an entry already held with the same term, truncate only on a genuine term conflict |
+| Learn the commit point | `src/dfs/raft.py` | `_adopt_leader_commit()` — clamped to the local log, never moves backwards |
+| Per-peer progress | `src/dfs/raft.py` | `_next_index` (optimistic, `last + 1`) and `_match_index` (known-replicated, starts at 0) |
+| The commit rule | `src/dfs/raft.py` | `_advance_commit_index()` — an index commits only if its term is the leader's own, held by a quorum |
+| Backtrack on refusal | `src/dfs/raft.py` | `_on_append_entries_response()` — `next_index = max(1, conflict_index)`, retried immediately |
+
+Two properties here are worth reading the code for rather than trusting this table.
+
+The commit rule encodes one clause twice. An entry is committed only when it was
+created in the leader's **current** term and a majority has stored it; once that
+happens every earlier entry is committed too, by Log Matching. The first half is a
+guard, the second is why a single index number suffices and no per-entry scan is
+needed. Committing a previous-term entry by counting replicas is the mistake the
+Raft paper's Figure 8 exists to rule out, so the same rule is asserted independently
+in the invariant checker as well — two encodings can only agree by both being
+right.
+
+The write path is idempotent by construction, not by luck. Storing skips an entry
+already present with the same index and term, and the leader takes the maximum of
+its recorded progress and the acknowledgement it just received, so a duplicated or
+late-arriving message cannot move state the wrong way. This matters because the
+transport is free to reorder and duplicate; the write path is written for that
+network even where the tests do not yet drive it.
+
+The reply carries the sender and the index it acknowledges. That is redundant for a
+synchronous request/response client, where the caller knows both, and necessary for
+this project's one-way delivery, which hands the receiver a bare object. The
+general rule: in a one-way transport, anything the receiver of a reply needs must
+be on the message.
+
 ## Consistency
 
 - Metadata operations are linearizable: they are committed through Raft and read

@@ -107,17 +107,7 @@ class InvariantChecker:
 
     def _check_leader_completeness(self, cluster: ClusterState) -> list[Violation]:
         violations: list[Violation] = []
-        for node in cluster.nodes:
-            for entry in node.log:
-                if entry.index > node.commit_index:
-                    continue
-                known = self._committed.get(entry.index)
-                if known is None:
-                    self._committed[entry.index] = _Committed(entry=entry, term=node.current_term)
-                elif node.current_term < known.term:
-                    self._committed[entry.index] = _Committed(
-                        entry=known.entry, term=node.current_term
-                    )
+        self._record_commits(cluster)
         for node in cluster.nodes:
             if node.role is not Role.LEADER:
                 continue
@@ -137,6 +127,24 @@ class InvariantChecker:
                         )
                     )
         return violations
+
+    def _record_commits(self, cluster: ClusterState) -> None:
+        quorum = len(cluster.nodes) // 2 + 1
+        for leader in cluster.nodes:
+            if leader.role is not Role.LEADER:
+                continue
+            for entry in leader.log:
+                if entry.term != leader.current_term:
+                    continue
+                holders = sum(
+                    1 for node in cluster.nodes if _entry_at(node.log, entry.index) == entry
+                )
+                if holders < quorum:
+                    continue
+                for prior in leader.log:
+                    if prior.index > entry.index or prior.index in self._committed:
+                        continue
+                    self._committed[prior.index] = _Committed(entry=prior, term=leader.current_term)
 
 
 @dataclass(frozen=True)
