@@ -56,6 +56,7 @@ definitions; the core never depends on the storage, client, or adaptive layers.
 |---|---|---|---|
 | Clock | `src/dfs/clock.py` | `src/dfs/sim/clock.py` (`SimClock`) | not yet written (U7) |
 | Network | `src/dfs/network.py` | `src/dfs/sim/network.py` (`SimNetwork`) | `src/dfs/transport.py` (gRPC, U0) |
+| Storage | `src/dfs/storage.py` | in-memory double in the tests | `FileStorage` in `src/dfs/storage.py` |
 
 Run wiring: `src/dfs/sim/simulation.py` (`Simulation`) owns the seed and the one
 PRNG, constructs the clock and network, and routes deliveries to registered
@@ -128,6 +129,23 @@ synchronous request/response client, where the caller knows both, and necessary 
 this project's one-way delivery, which hands the receiver a bare object. The
 general rule: in a one-way transport, anything the receiver of a reply needs must
 be on the message.
+
+### Code pointers — durable state (U5)
+
+| Piece | Lives in | Notes |
+|---|---|---|
+| Durable boundary | `src/dfs/storage.py` | `PersistentState` — the three fields Figure 2 calls persistent: term, vote, log |
+| The port | `src/dfs/storage.py` | `Storage` protocol (`save`/`load`); the core never imports a path or a file API |
+| The file | `src/dfs/storage.py` | `FileStorage` — temp file, flush, fsync, atomic replace, sha256 over the payload |
+| Persist point | `src/dfs/raft.py` | `_persist()` — no-ops when durable state is unchanged, so a heartbeat does not rewrite the file |
+| The ordering rule | `src/dfs/raft.py` | every `_persist()` call sits BEFORE the reply is sent, never after |
+
+Two limits are worth stating plainly. `commit_index` is **not** persisted: a
+restarted node comes back as a follower that does not know what was committed and is
+re-taught by the leader through `leader_commit`, because a second durable record of
+the same fact is a second thing that can disagree. And the durability tests kill a
+*process* and corrupt a *file*; they do not prove a state survives a power cut
+between the fsync and the platter, which a simulator cannot show.
 
 ## Consistency
 

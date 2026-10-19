@@ -7,12 +7,39 @@ from dfs.raft import RaftNode
 from dfs.sim.network import NetworkConditions
 from dfs.sim.simulation import Simulation
 from dfs.state import ClusterState, Role
+from dfs.storage import PersistentState, Storage
 
 PING_LIMIT = 6
 ELECTION_TIMEOUT_MIN = 150
 ELECTION_TIMEOUT_MAX = 300
 HEARTBEAT_INTERVAL = 50
 TICK = 10
+
+
+class MemoryStorage:
+    def __init__(self) -> None:
+        self._state = PersistentState(current_term=0, voted_for=None, log=())
+        self.saves = 0
+
+    def save(self, state: PersistentState) -> None:
+        self._state = state
+        self.saves += 1
+
+    def load(self) -> PersistentState:
+        return self._state
+
+
+class OrderingStorage:
+    def __init__(self, timeline: list[str]) -> None:
+        self._timeline = timeline
+        self._state = PersistentState(current_term=0, voted_for=None, log=())
+
+    def save(self, state: PersistentState) -> None:
+        self._timeline.append("save")
+        self._state = state
+
+    def load(self) -> PersistentState:
+        return self._state
 
 
 class PingNode:
@@ -111,6 +138,7 @@ def build_node(
     peers: tuple[str, ...] = ("n2", "n3"),
     clock: ManualClock | None = None,
     network: SilentNetwork | None = None,
+    storage: Storage | None = None,
 ) -> tuple[RaftNode, ManualClock, SilentNetwork]:
     resolved_clock = clock if clock is not None else ManualClock()
     resolved_network = network if network is not None else SilentNetwork()
@@ -119,18 +147,12 @@ def build_node(
         peers=peers,
         clock=resolved_clock,
         network=resolved_network,
+        storage=storage if storage is not None else MemoryStorage(),
         election_timeout_min=ELECTION_TIMEOUT_MIN,
         election_timeout_max=ELECTION_TIMEOUT_MAX,
         heartbeat_interval=HEARTBEAT_INTERVAL,
     )
     return node, resolved_clock, resolved_network
-
-
-def _receive_ignoring_reply(node: RaftNode) -> Callable[[Message], None]:
-    def receive(message: Message) -> None:
-        node.receive(message)
-
-    return receive
 
 
 def role_of(node: RaftNode) -> Role:
@@ -151,20 +173,37 @@ class Cluster:
         )
         self.names = tuple(f"n{index}" for index in range(1, size + 1))
         self.nodes: dict[str, RaftNode] = {}
+        self.storages: dict[str, MemoryStorage] = {name: MemoryStorage() for name in self.names}
         for name in self.names:
-            node = RaftNode(
-                node_id=name,
-                peers=tuple(other for other in self.names if other != name),
-                clock=self.simulation.clock,
-                network=self.simulation.network,
-                election_timeout_min=ELECTION_TIMEOUT_MIN,
-                election_timeout_max=ELECTION_TIMEOUT_MAX,
-                heartbeat_interval=HEARTBEAT_INTERVAL,
-                random=self.simulation.random,
-            )
-            self.nodes[name] = node
-            self.simulation.register(name, _receive_ignoring_reply(node))
+            self.nodes[name] = self._build(name)
+            self.simulation.register(name, self._handler_for(name))
         self.simulation.observe(self.snapshot)
+
+    def _handler_for(self, name: str) -> Callable[[Message], None]:
+        def receive(message: Message) -> None:
+            self.nodes[name].receive(message)
+
+        return receive
+
+    def _build(self, name: str) -> RaftNode:
+        return RaftNode(
+            node_id=name,
+            peers=tuple(other for other in self.names if other != name),
+            clock=self.simulation.clock,
+            network=self.simulation.network,
+            storage=self.storages[name],
+            election_timeout_min=ELECTION_TIMEOUT_MIN,
+            election_timeout_max=ELECTION_TIMEOUT_MAX,
+            heartbeat_interval=HEARTBEAT_INTERVAL,
+            random=self.simulation.random,
+        )
+
+    def restart(self, name: str) -> None:
+        self.nodes[name] = self._build(name)
+        self.simulation.restart(name)
+
+    def crash(self, name: str) -> None:
+        self.simulation.crash(name)
 
     def snapshot(self) -> ClusterState:
         return ClusterState(nodes=tuple(self.nodes[name].state() for name in self.names))

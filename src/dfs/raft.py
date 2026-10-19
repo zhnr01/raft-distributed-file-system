@@ -9,6 +9,7 @@ from dfs.messages import (
 )
 from dfs.network import Message, Network
 from dfs.state import LogEntry, NodeState, Role
+from dfs.storage import PersistentState, Storage
 
 Reply = RequestVoteResponse | AppendEntriesResponse
 
@@ -20,6 +21,7 @@ class RaftNode:
         peers: tuple[str, ...],
         clock: Clock,
         network: Network,
+        storage: Storage,
         election_timeout_min: int,
         election_timeout_max: int,
         heartbeat_interval: int,
@@ -42,14 +44,17 @@ class RaftNode:
         self._peers = peers
         self._clock = clock
         self._network = network
+        self._storage = storage
         self._timeout_min = election_timeout_min
         self._timeout_max = election_timeout_max
         self._heartbeat_interval = heartbeat_interval
         self._random = random if random is not None else Random(node_id)
-        self._current_term = 0
-        self._voted_for: str | None = None
+        recovered = storage.load()
+        self._current_term = recovered.current_term
+        self._voted_for = recovered.voted_for
         self._role = Role.FOLLOWER
-        self._log: tuple[LogEntry, ...] = ()
+        self._log: tuple[LogEntry, ...] = recovered.log
+        self._durable = recovered
         self._commit_index = 0
         self._next_index: dict[str, int] = {}
         self._match_index: dict[str, int] = {}
@@ -95,6 +100,7 @@ class RaftNode:
             raise ValueError(f"node {self._node_id} cannot accept commands as {self._role.value}")
         entry = LogEntry(term=self._current_term, index=self._last_log_index() + 1, command=command)
         self._log = (*self._log, entry)
+        self._persist()
         self._replicate()
         return entry.index
 
@@ -134,6 +140,17 @@ class RaftNode:
             commit_index=self._commit_index,
         )
 
+    def _persist(self) -> None:
+        state = PersistentState(
+            current_term=self._current_term,
+            voted_for=self._voted_for,
+            log=self._log,
+        )
+        if state == self._durable:
+            return
+        self._storage.save(state)
+        self._durable = state
+
     def _cluster_size(self) -> int:
         return len(self._peers) + 1
 
@@ -153,6 +170,7 @@ class RaftNode:
         self._role = Role.CANDIDATE
         self._current_term += 1
         self._voted_for = self._node_id
+        self._persist()
         self._votes = {self._node_id}
         self._start_election_timer()
         if len(self._votes) >= self._quorum():
@@ -193,6 +211,7 @@ class RaftNode:
         if term > self._current_term:
             self._current_term = term
             self._voted_for = None
+            self._persist()
         self._role = Role.FOLLOWER
         self._votes = set()
 
@@ -232,6 +251,7 @@ class RaftNode:
         if not self._candidate_log_is_at_least_as_current(request):
             return self._answer_vote(request.candidate_id, self._refuse_vote())
         self._voted_for = request.candidate_id
+        self._persist()
         self._start_election_timer()
         granted = RequestVoteResponse(
             term=self._current_term, voter_id=self._node_id, vote_granted=True
@@ -293,6 +313,7 @@ class RaftNode:
                 ),
             )
         self._store_entries(message)
+        self._persist()
         self._adopt_leader_commit(message)
         return self._answer_leader(
             message.leader_id,

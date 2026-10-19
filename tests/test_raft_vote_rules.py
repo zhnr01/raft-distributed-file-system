@@ -1,4 +1,4 @@
-from conftest import build_node
+from conftest import MemoryStorage, build_node
 
 from dfs.messages import RequestVote, RequestVoteResponse
 from dfs.raft import RaftNode
@@ -97,6 +97,7 @@ def test_an_inverted_timeout_range_is_rejected() -> None:
             peers=("n2",),
             clock=ManualClock(),
             network=SilentNetwork(),
+            storage=MemoryStorage(),
             election_timeout_min=300,
             election_timeout_max=150,
             heartbeat_interval=50,
@@ -116,6 +117,7 @@ def test_a_heartbeat_interval_at_the_election_timeout_is_rejected() -> None:
             peers=("n2",),
             clock=ManualClock(),
             network=SilentNetwork(),
+            storage=MemoryStorage(),
             election_timeout_min=150,
             election_timeout_max=300,
             heartbeat_interval=150,
